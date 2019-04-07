@@ -34,6 +34,7 @@ class MessageStore(object):
     def store_msg(self, node_name, measurement_name, value):
         raise NotImplementedError()
 
+
 class InfluxStore(MessageStore):
 
     logger = logging.getLogger("forwarder.InfluxStore")
@@ -41,9 +42,12 @@ class InfluxStore(MessageStore):
     def __init__(self, host, port, username, password_file, database):
         password = open(password_file).read().strip()
         self.influx_client = InfluxDBClient(
-            host=host, port=port, username=username, password=password, database=database)
-        # influx_client.create_database('sensors')
-
+            host=host,
+            port=port,
+            username=username,
+            password=password,
+            database=database
+        )
 
     def store_msg(self, node_name, measurement_name, data):
         if not isinstance(data, dict):
@@ -60,6 +64,7 @@ class InfluxStore(MessageStore):
             self.influx_client.write_points([influx_msg])
         except requests.exceptions.ConnectionError as e:
             self.logger.exception(e)
+
 
 class MessageSource(object):
 
@@ -78,7 +83,13 @@ class MQTTSource(MessageSource):
 
     logger = logging.getLogger("forwarder.MQTTSource")
 
-    def __init__(self, host, port, node_names, stringify_values_for_measurements):
+    def __init__(
+        self,
+        host,
+        port,
+        node_names,
+        stringify_values_for_measurements
+    ):
         self.host = host
         self.port = port
         self.node_names = node_names
@@ -94,24 +105,38 @@ class MQTTSource(MessageSource):
             for node_name in self.node_names:
                 topic = "/{node_name}/#".format(node_name=node_name)
                 self.logger.info(
-                    "Subscribing to topic %s for node_name %s", topic, node_name)
+                    "Subscribing to topic %s for node_name %s",
+                    topic, node_name
+                )
                 client.subscribe(topic)
 
         def on_message(client, userdata, msg):
             self.logger.debug(
-                "Received MQTT message for topic %s with payload %s", msg.topic, msg.payload)
-            token_pattern = ur'(?:\w|-|\.)+'
+                "Received MQTT message for topic %s with payload %s",
+                msg.topic,
+                msg.payload
+            )
+            token_pattern = r'(?:\w|-|\.)+'
             regex = re.compile(
-                ur'/(?P<node_name>' + token_pattern + ')/(?P<measurement_name>' + token_pattern + ')/?')
+                r'/(?P<node_name>{})/(?P<measurement_name>{})/?'.format(
+                    [token_pattern, token_pattern]
+                )
+            )
+
             match = regex.match(msg.topic)
             if match is None:
                 self.logger.warn(
-                    "Could not extract node name or measurement name from topic %s", msg.topic)
+                    'Could not extract node name or measurement name from topic %s.',
+                    msg.topic
+                )
                 return
             node_name = match.group('node_name')
             if node_name not in self.node_names:
                 self.logger.warn(
-                    "Extract node_name %s from topic, but requested to receive messages for node_name %s", node_name, self.node_name)
+                    "Extract node_name %s from topic, but requested to receive messages for node_name %s",
+                    node_name,
+                    self.node_name
+                )
             measurement_name = match.group('measurement_name')
 
             value = msg.payload
@@ -156,23 +181,22 @@ class MQTTSource(MessageSource):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description='MQTT to InfluxDB bridge for IOT data.')
+    parser = argparse.ArgumentParser(description='MQTT to InfluxDB bridge for IOT data.')
     parser.add_argument('--mqtt-host', required=True, help='MQTT host')
     parser.add_argument('--mqtt-port', default="1883", help='MQTT port')
     parser.add_argument('--influx-host', required=True, help='InfluxDB host')
     parser.add_argument('--influx-port', default="8086", help='InfluxDB port')
-    parser.add_argument('--influx-user', required=True,
-                        help='InfluxDB username')
-    parser.add_argument('--influx-pass-file', required=True,
-                        help='InfluxDB password file')
+    parser.add_argument('--influx-user', required=True, help='InfluxDB username')
+    parser.add_argument('--influx-pass-file', required=True, help='InfluxDB password file')
     parser.add_argument('--influx-db', required=True, help='InfluxDB database')
-    parser.add_argument('--node-name', required=True,
-                        help='Sensor node name', action="append")
-    parser.add_argument('--stringify-values-for-measurements', required=False,
-                        help='Force str() on measurements of the given name', action="append")
-    parser.add_argument('--verbose', help='Enable verbose output to stdout',
-                        default=False, action='store_true')
+    parser.add_argument('--node-name', required=True, help='Sensor node name', action="append")
+    parser.add_argument(
+        '--stringify-values-for-measurements',
+        required=False,
+        help='Force str() on measurements of the given name',
+        action="append"
+    )
+    parser.add_argument('--verbose', help='Enable verbose output to stdout', default=False, action='store_true')
     args = parser.parse_args()
 
     if args.verbose:
@@ -180,13 +204,22 @@ def main():
     else:
         logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
-    store = InfluxStore(host=args.influx_host, port=args.influx_port,
-            username=args.influx_user, password_file=args.influx_pass_file, database=args.influx_db)
-    source = MQTTSource(host=args.mqtt_host,
-                        port=args.mqtt_port, node_names=args.node_name,
-                        stringify_values_for_measurements=args.stringify_values_for_measurements)
+    store = InfluxStore(
+        host=args.influx_host,
+        port=args.influx_port,
+        username=args.influx_user,
+        password_file=args.influx_pass_file,
+        database=args.influx_db
+    )
+    source = MQTTSource(
+        host=args.mqtt_host,
+        port=args.mqtt_port,
+        node_names=args.node_name,
+        stringify_values_for_measurements=args.stringify_values_for_measurements
+    )
     source.register_store(store)
     source.start()
+
 
 if __name__ == '__main__':
     main()
